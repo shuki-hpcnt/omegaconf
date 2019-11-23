@@ -1,0 +1,1 @@
+Add preliminary support for initializing OmegaConf from a class or an object of attr class or dataclasses.

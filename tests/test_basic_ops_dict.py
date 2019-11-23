@@ -1,9 +1,18 @@
-import re
 import tempfile
 
 import pytest
+import re
+from typing import Any
 
-from omegaconf import OmegaConf, MissingMandatoryValue, DictConfig, UntypedNode, Config
+from omegaconf import (
+    OmegaConf,
+    MissingMandatoryValue,
+    UnsupportedValueType,
+    UnsupportedKeyType,
+    DictConfig,
+    UntypedNode,
+    Container,
+)
 from . import IllegalType
 
 
@@ -114,6 +123,12 @@ def test_map_expansion():
 def test_items():
     c = OmegaConf.create(dict(a=2, b=10))
     assert sorted([("a", 2), ("b", 10)]) == sorted(list(c.items()))
+
+    ii = c.items()
+    next(ii) == ("a", 2)
+    next(ii) == ("b", 10)
+    with pytest.raises(StopIteration):
+        next(ii)
 
 
 def test_items2():
@@ -241,14 +256,14 @@ def test_dict_len():
 
 
 def test_dict_assign_illegal_value():
-    with pytest.raises(ValueError, match=re.escape("key a")):
-        c = OmegaConf.create(dict())
+    c = OmegaConf.create(dict())
+    with pytest.raises(UnsupportedValueType, match=re.escape("key a")):
         c.a = IllegalType()
 
 
 def test_dict_assign_illegal_value_nested():
-    with pytest.raises(ValueError, match=re.escape("key a.b")):
-        c = OmegaConf.create(dict(a=dict()))
+    c = OmegaConf.create(dict(a=dict()))
+    with pytest.raises(UnsupportedValueType, match=re.escape("key a.b")):
         c.a.b = IllegalType()
 
 
@@ -293,7 +308,7 @@ def test_pretty_with_resolve():
 
 def test_instantiate_config_fails():
     with pytest.raises(NotImplementedError):
-        Config()
+        Container(element_type=Any, parent=None)
 
 
 def test_dir():
@@ -381,7 +396,7 @@ def test_dict_not_eq(input1, input2):
 def test_config_eq_mismatch_types():
     c1 = OmegaConf.create({})
     c2 = OmegaConf.create([])
-    assert not Config._config_eq(c1, c2)
+    assert not Container._config_eq(c1, c2)
 
 
 def test_dict_not_eq_with_another_class():
@@ -431,3 +446,17 @@ def test_masked_copy_is_deep():
     assert masked == expected
     cfg.a.b = 2
     assert cfg != expected
+
+    with pytest.raises(ValueError):
+        OmegaConf.masked_copy("fail", [])
+
+
+def test_creation_with_invalid_key():
+    with pytest.raises(UnsupportedKeyType):
+        OmegaConf.create({1: "a"})
+
+
+def test_set_with_invalid_key():
+    cfg = OmegaConf.create()
+    with pytest.raises(UnsupportedKeyType):
+        cfg[1] = "a"

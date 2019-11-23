@@ -1,5 +1,6 @@
-from omegaconf import OmegaConf
 from pytest import raises
+
+from omegaconf import OmegaConf
 
 
 def test_select_key_from_empty():

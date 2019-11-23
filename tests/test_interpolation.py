@@ -5,6 +5,9 @@ import pytest
 
 from omegaconf import OmegaConf
 
+# noinspection PyProtectedMember
+from omegaconf._utils import get_value_kind, ValueKind
+
 
 def test_str_interpolation_dict_1():
     # Simplest str_interpolation
@@ -320,3 +323,16 @@ def test_incremental_dict_with_interpolation():
 def test_interpolations(cfg, key, expected):
     cfg = OmegaConf.create(cfg)
     assert cfg.select(key) == expected
+
+
+@pytest.mark.parametrize(
+    "value,kind",
+    [
+        ("foo", ValueKind.VALUE),
+        ("???", ValueKind.MANDATORY_MISSING),
+        ("${foo.bar}", ValueKind.INTERPOLATION),
+        ("ftp://${host}/path", ValueKind.STR_INTERPOLATION),
+    ],
+)
+def test_value_kind(value, kind):
+    assert get_value_kind(value) == kind

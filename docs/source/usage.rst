@@ -19,6 +19,9 @@ Just pip install::
 
 Creating
 --------
+You can create OmegaConf objects from multiple sources, including Python primitives list dict or lists, YAML files,
+YAML strings and structured classes or objects and also from the command line.
+
 Empty
 ^^^^^
 
@@ -79,9 +82,18 @@ From a yaml file
 From a yaml string
 ^^^^^^^^^^^^^^^^^^
 
+
+
 .. doctest::
 
-    >>> conf = OmegaConf.create("a: b\nb: c\nlist:\n- item1\n- item2\n")
+    >>> s = """
+    ... a: b
+    ... b: c
+    ... list:
+    ... - item1
+    ... - item2
+    ... """
+    >>> conf = OmegaConf.create(s)
     >>> print(conf.pretty())
     a: b
     b: c
@@ -123,6 +135,55 @@ To parse the content of sys.arg:
     server:
       port: 82
     <BLANKLINE>
+
+From structured config
+^^^^^^^^^^^^^^^^^^^^^^
+*New in OmegaConf 2.0, API Considered experimental and may change.*
+
+You can create OmegaConf objects from structured config classes or objects. This provides static and runtime type safety.
+See :doc:`structured_config` for more details, or keep reading for a minimal example.
+
+.. doctest::
+
+    >>> from dataclasses import dataclass
+    >>> @dataclass
+    ... class MyConfig:
+    ...     port: int = 80
+    ...     host: str = "localhost"
+    >>> conf = OmegaConf.create(MyConfig)
+    >>> print(conf.pretty())
+    host: localhost
+    port: 80
+    <BLANKLINE>
+
+You can use an object to initialize the config as well:
+
+.. doctest::
+
+    >>> conf = OmegaConf.create(MyConfig(port=443))
+    >>> print(conf.pretty())
+    host: localhost
+    port: 443
+    <BLANKLINE>
+
+OmegaConf objects constructed from Structured classes offer runtime type safety:
+
+.. doctest::
+
+    >>> conf.port = 42      # Ok, type matches
+    >>> conf.port = "1080"  # "1080" can be converted to an int
+    >>> conf.port = "oops"  # "oops" cannot be converted to an int
+    Traceback (most recent call last):
+    ...
+    omegaconf.errors.ValidationError: Value 'oops' could not be converted to Integer
+
+In addition, the config class can be used as type annotation for static type checkers or IDEs:
+
+.. doctest::
+
+    >>> def foo(conf: MyConfig):
+    ...     print(conf.port) # passes static type checker
+    ...     print(conf.pork) # fails static type checker
 
 Access and manipulation
 -----------------------

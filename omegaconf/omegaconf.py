@@ -7,8 +7,20 @@ from contextlib import contextmanager
 import io
 import re
 import yaml
+from typing import Any
 
-from .config import Config
+from ._utils import (
+    is_structured_config,
+    decode_primitive,
+)
+from .container import Container
+from .errors import ValidationError
+
+MISSING: Any = "???"
+
+
+def II(interpolation: str) -> Any:
+    return "${" + interpolation + "}"
 
 
 def register_default_resolvers():
@@ -31,7 +43,7 @@ class OmegaConf:
     def create(obj=None, parent=None):
         from .dictconfig import DictConfig
         from .listconfig import ListConfig
-        from .config import get_yaml_loader
+        from ._utils import get_yaml_loader
 
         if isinstance(obj, str):
             new_obj = yaml.load(obj, Loader=get_yaml_loader())
@@ -44,21 +56,21 @@ class OmegaConf:
             if obj is None:
                 obj = {}
 
-            if isinstance(obj, dict):
+            if isinstance(obj, dict) or is_structured_config(obj):
                 return DictConfig(obj, parent)
             elif isinstance(obj, (list, tuple)):
                 return ListConfig(obj, parent)
             else:
-                raise RuntimeError("Unsupported type {}".format(type(obj).__name__))
+                raise ValidationError("Unsupported type {}".format(type(obj).__name__))
 
     @staticmethod
     def load(file_):
-        from .config import get_yaml_loader
+        from ._utils import get_yaml_loader
 
         if isinstance(file_, str):
             with io.open(os.path.abspath(file_), "r", encoding="utf-8") as f:
                 return OmegaConf.create(yaml.load(f, Loader=get_yaml_loader()))
-        elif getattr(file_, "read"):
+        elif getattr(file_, "read", None):
             return OmegaConf.create(yaml.load(file_, Loader=get_yaml_loader()))
         else:
             raise TypeError("Unexpected file type")
@@ -126,7 +138,7 @@ class OmegaConf:
         assert callable(resolver), "resolver must be callable"
         # noinspection PyProtectedMember
         assert (
-            name not in Config._resolvers
+            name not in Container._resolvers
         ), "resolved {} is already registered".format(name)
 
         def caching(config, key):
@@ -138,17 +150,17 @@ class OmegaConf:
             return val
 
         # noinspection PyProtectedMember
-        Config._resolvers[name] = caching
+        Container._resolvers[name] = caching
 
     # noinspection PyProtectedMember
     @staticmethod
     def get_resolver(name):
-        return Config._resolvers[name] if name in Config._resolvers else None
+        return Container._resolvers[name] if name in Container._resolvers else None
 
     # noinspection PyProtectedMember
     @staticmethod
     def clear_resolvers():
-        Config._resolvers = {}
+        Container._resolvers = {}
         register_default_resolvers()
 
     @staticmethod
@@ -202,16 +214,17 @@ class OmegaConf:
         return DictConfig(content=content)
 
     @staticmethod
-    def to_container(cfg, resolve=False):
+    def to_container(cfg, resolve=False, enum_to_str=False):
         """
         Resursively converts an OmegaConf config to a primitive container (dict or list).
         :param cfg: the config to convert
         :param resolve: True to resolve all values
+        :param enum_to_str: True to convert Enum values to strings
         :return: A dict or a list representing this config as a primitive container.
         """
-        assert isinstance(cfg, Config)
+        assert isinstance(cfg, Container)
         # noinspection PyProtectedMember
-        return Config._to_content(cfg, resolve)
+        return Container._to_content(cfg, resolve, enum_to_str=enum_to_str)
 
 
 # register all default resolvers
@@ -250,34 +263,3 @@ def open_dict(config):
         yield config
     finally:
         OmegaConf.set_struct(config, prev_state)
-
-
-def decode_primitive(s):
-    def is_bool(st):
-        st = str.lower(st)
-        return st == "true" or st == "false"
-
-    def is_float(st):
-        try:
-            float(st)
-            return True
-        except ValueError:
-            return False
-
-    def is_int(s):
-        try:
-            int(s)
-            return True
-        except ValueError:
-            return False
-
-    if is_bool(s):
-        return str.lower(s) == "true"
-
-    if is_int(s):
-        return int(s)
-
-    if is_float(s):
-        return float(s)
-
-    return s

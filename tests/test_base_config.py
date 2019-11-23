@@ -7,6 +7,7 @@ from omegaconf import (
     IntegerNode,
     StringNode,
     ValidationError,
+    Container,
     ListConfig,
     DictConfig,
     ReadonlyConfigError,
@@ -57,6 +58,22 @@ def test_set_value_validation_fail(input_, key, value):
 
 
 @pytest.mark.parametrize(
+    "input_, key, value",
+    [
+        # dict
+        (dict(foo=IntegerNode(10)), "foo", StringNode("str")),
+        # list
+        ([1, IntegerNode(10)], 1, StringNode("str")),
+    ],
+)
+def test_replace_value_node_type_with_another(input_, key, value):
+    c = OmegaConf.create(input_)
+    c[key] = value
+    assert c[key] == value
+    assert c[key] == value.value()
+
+
+@pytest.mark.parametrize(
     "input_",
     [
         [1, 2, 3],
@@ -79,6 +96,10 @@ def test_to_container_returns_primitives(input_):
 
     c = OmegaConf.create(input_)
     res = OmegaConf.to_container(c, resolve=True)
+    assert_container_with_primitives(res)
+
+    # Test deprecated API
+    res = c.to_container(resolve=True)
     assert_container_with_primitives(res)
 
 
@@ -127,13 +148,13 @@ def test_str(input_):
 @pytest.mark.parametrize("flag", ["readonly", "struct"])
 def test_flag_dict(flag):
     c = OmegaConf.create()
-    assert not c._get_flag(flag)
+    assert c._get_flag(flag) is None
     c._set_flag(flag, True)
-    assert c._get_flag(flag)
+    assert c._get_flag(flag) is True
     c._set_flag(flag, False)
-    assert not c._get_flag(flag)
+    assert not c._get_flag(flag) is True
     c._set_flag(flag, None)
-    assert not c._get_flag(flag)
+    assert c._get_flag(flag) is None
 
 
 @pytest.mark.parametrize("flag", ["readonly", "struct"])
@@ -155,52 +176,41 @@ def test_freeze_nested_dict(flag):
     assert c.a._get_flag(flag)
 
 
-copy_list = [
-    [],
-    [1, 2, 3],
-    dict(),
-    dict(a=10),
-]
-
-
-@pytest.mark.parametrize("src", copy_list)
-def test_deepcopy(src):
-    c1 = OmegaConf.create(src)
-    c2 = copy.deepcopy(c1)
-    assert c1 == c2
-    if isinstance(c2, ListConfig):
-        c2.append(1000)
-    elif isinstance(c2, DictConfig):
-        c2.foo = "bar"
-    assert c1 != c2
-
-
-@pytest.mark.parametrize("src", copy_list)
-def test_deepcopy_readonly(src):
-    c1 = OmegaConf.create(src)
-    OmegaConf.set_readonly(c1, True)
-    c2 = copy.deepcopy(c1)
-    assert c1 == c2
-    if isinstance(c2, ListConfig):
-        with pytest.raises(ReadonlyConfigError):
+@pytest.mark.parametrize("src", [[], [1, 2, 3], dict(), dict(a=10)])
+class TestDeepCopy:
+    def test_deepcopy(self, src):
+        c1 = OmegaConf.create(src)
+        c2 = copy.deepcopy(c1)
+        assert c1 == c2
+        if isinstance(c2, ListConfig):
             c2.append(1000)
-    elif isinstance(c2, DictConfig):
-        with pytest.raises(ReadonlyConfigError):
+        elif isinstance(c2, DictConfig):
             c2.foo = "bar"
-    assert c1 == c2
+        assert c1 != c2
 
+    def test_deepcopy_readonly(self, src):
+        c1 = OmegaConf.create(src)
+        OmegaConf.set_readonly(c1, True)
+        c2 = copy.deepcopy(c1)
+        assert c1 == c2
+        if isinstance(c2, ListConfig):
+            with pytest.raises(ReadonlyConfigError):
+                c2.append(1000)
+        elif isinstance(c2, DictConfig):
+            with pytest.raises(ReadonlyConfigError):
+                c2.foo = "bar"
+        assert c1 == c2
 
-@pytest.mark.parametrize("src", copy_list)
-def test_deepcopy_struct(src):
-    c1 = OmegaConf.create(src)
-    OmegaConf.set_struct(c1, True)
-    c2 = copy.deepcopy(c1)
-    assert c1 == c2
-    if isinstance(c2, ListConfig):
-        c2.append(1000)
-    elif isinstance(c2, DictConfig):
-        with pytest.raises(KeyError):
-            c2.foo = "bar"
+    def test_deepcopy_struct(self, src):
+        c1 = OmegaConf.create(src)
+        OmegaConf.set_struct(c1, True)
+        c2 = copy.deepcopy(c1)
+        assert c1 == c2
+        if isinstance(c2, ListConfig):
+            c2.append(1000)
+        elif isinstance(c2, DictConfig):
+            with pytest.raises(KeyError):
+                c2.foo = "bar"
 
 
 def test_deepcopy_after_del():
@@ -214,7 +224,6 @@ def test_deepcopy_after_del():
 
 
 def test_deepcopy_with_interpolation():
-    # make sure that deepcopy does not resurrect deleted fields (as it once did, believe it or not).
     c1 = OmegaConf.create(dict(a=dict(b="${c}"), c=10))
     assert c1.a.b == 10
     c2 = copy.deepcopy(c1)
@@ -230,6 +239,18 @@ def test_deepcopy_and_merge_and_flags():
     c2 = copy.deepcopy(c1)
     with pytest.raises(KeyError):
         OmegaConf.merge(c2, OmegaConf.from_dotlist(["dataset.bad_key=yes"]))
+
+
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        ListConfig(content=[], element_type=int),
+        DictConfig(content={}, element_type=int),
+    ],
+)
+def test_deepcopy_preserves_container_type(cfg):
+    cp = copy.deepcopy(cfg)
+    assert cp.__dict__["_element_type"] == cfg.__dict__["_element_type"]
 
 
 @pytest.mark.parametrize(
@@ -374,3 +395,43 @@ class TestCopy:
         cp = copy_method(cfg)
         assert id(cfg) != id(cp)
         assert id(cfg[0]) == id(cp[0])
+
+
+def test_not_implemented(mocker):
+    mocker.patch("omegaconf.Container.__init__", lambda self: None)
+    obj = Container()
+    with pytest.raises(NotImplementedError):
+        obj == "foo"
+
+    with pytest.raises(NotImplementedError):
+        obj != "foo"
+
+    with pytest.raises(NotImplementedError):
+        iter(obj)
+
+    with pytest.raises(NotImplementedError):
+        hash(obj)
+
+    with pytest.raises(NotImplementedError):
+        obj.get_node("foo")
+
+    with pytest.raises(NotImplementedError):
+        obj.get("foo")
+
+    with pytest.raises(NotImplementedError):
+        OmegaConf()
+
+
+def test_resolve_single():
+    cfg = OmegaConf.create({"foo": 10, "bar": "${foo}"})
+
+    assert cfg._resolve_single(value="a") == "a"
+    assert cfg._resolve_single(value="${foo}") == 10
+    assert cfg._resolve_single(value="${bar}") == 10
+
+
+def test_omegaconf_create():
+    assert OmegaConf.create([]) == []
+    assert OmegaConf.create({}) == {}
+    with pytest.raises(ValidationError):
+        assert OmegaConf.create(10)

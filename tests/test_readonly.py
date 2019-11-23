@@ -1,7 +1,7 @@
-import re
-
 import pytest
+import re
 from pytest import raises
+
 from omegaconf import ReadonlyConfigError, OmegaConf
 
 

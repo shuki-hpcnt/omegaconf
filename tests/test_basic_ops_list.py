@@ -1,8 +1,9 @@
+import pytest
 import re
 
-import pytest
-
 from omegaconf import OmegaConf, UntypedNode, ListConfig, DictConfig
+from omegaconf.errors import UnsupportedValueType, UnsupportedKeyType
+from omegaconf.nodes import IntegerNode, StringNode
 from . import IllegalType, does_not_raise
 
 
@@ -123,8 +124,8 @@ def test_assign(parent, index, value, expected):
 
 
 def test_nested_list_assign_illegal_value():
-    with pytest.raises(ValueError, match=re.escape("key a[0]")):
-        c = OmegaConf.create(dict(a=[None]))
+    c = OmegaConf.create(dict(a=[None]))
+    with pytest.raises(UnsupportedValueType, match=re.escape("key a[0]")):
         c.a[0] = IllegalType()
 
 
@@ -184,10 +185,20 @@ def test_getattr():
         getattr(c, "anything")
 
 
-def test_insert():
-    c = OmegaConf.create(["a", "b", "c"])
-    c.insert(1, 100)
-    assert c == ["a", 100, "b", "c"]
+@pytest.mark.parametrize(
+    "input_, index, value, expected, expected_node_type",
+    [
+        (["a", "b", "c"], 1, 100, ["a", 100, "b", "c"], UntypedNode),
+        (["a", "b", "c"], 1, IntegerNode(100), ["a", 100, "b", "c"], IntegerNode),
+        (["a", "b", "c"], 1, "foo", ["a", "foo", "b", "c"], UntypedNode),
+        (["a", "b", "c"], 1, StringNode("foo"), ["a", "foo", "b", "c"], StringNode),
+    ],
+)
+def test_insert(input_, index, value, expected, expected_node_type):
+    c = OmegaConf.create(input_)
+    c.insert(index, value)
+    assert c == expected
+    assert type(c.get_node(index)) == expected_node_type
 
 
 @pytest.mark.parametrize(
@@ -383,3 +394,9 @@ class TestListAdd:
         expected = OmegaConf.create(expected)
         list1 += list2
         assert list1 == expected
+
+
+def test_set_with_invalid_key():
+    cfg = OmegaConf.create([1, 2, 3])
+    with pytest.raises(UnsupportedKeyType):
+        cfg["foo"] = 4
